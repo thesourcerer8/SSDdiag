@@ -16,3 +16,6 @@ If you want additional diagnostics, run it with --debug parameter, but this can 
 
 If you need more information, please read the Repair Manual:
 http://www2.futureware.at/~philipp/ssd/TheMissingManual.pdf
+
+Sample diagnostics can be found here:
+http://www2.futureware.at/~philipp/ssd/diag/
