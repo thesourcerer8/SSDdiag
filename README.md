@@ -2,10 +2,22 @@
 Diagnostics software for Samsung SSD EVO 840 problems
 
 System requirements:
-OpenOCD.org and a supported JTAG adapter (at the moment only Novena is a certified JTAG adapter)
-Perl.org
+* OpenOCD.org and a supported JTAG adapter (at the moment only Novena is a certified JTAG adapter)
+* Perl.org
 
-It was designed and tested on EVO 840 with EXT0BB6Q and EXT0CB6Q firmware versions.
+Supported SSDs:
+* SAMSUNG EVO 840 
+
+Supported controllers:
+* SAMSUNG S4LN045X01-8030 (MEX)
+
+Supported Firmware:
+* EXT0BB6Q 
+* EXT0CB6Q
+
+Supported JTAG adapters:
+* http://www.kosagi.com/w/index.php?title=Novena_Main_Page
+
 
 Usage:
 Adapt mex1.conf to your JTAG adapter
