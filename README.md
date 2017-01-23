@@ -1,6 +1,14 @@
 # SSDdiag
 Diagnostics software for Samsung SSD EVO 840 problems
 
+Features:
+* detects the firmware version from the running code.
+* looks whether the controller is able to see a SATA connection, and whether the firmware was able to establish the connection.
+* checks the 8 Flash channels
+* analyzes Stack-Traces
+* analyzes the Inter-Process-Communication between the ARM cores, and explains their meaning
+* takes approximately 1 minute to execute
+
 System requirements:
 * OpenOCD.org and a supported JTAG adapter (at the moment only Novena is a certified JTAG adapter)
 * Perl.org
