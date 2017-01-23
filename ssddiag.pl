@@ -67,6 +67,11 @@ sub getMem($)
   if($val!~m/^[0-9a-f]{8}$/)
   {
     print "Error: $v\n";
+    if($v=~m/Target not examined yet/)
+    {
+      print "SSD does not seem to be powered up or properly connected. Please check the connection and OpenOCD settings in mex1.conf\n";
+      exit;
+    }
     return "unknown";
   }
   #print STDERR "val: $val\n";
@@ -84,7 +89,7 @@ sub getPC($)
   ocd("targets $_[0]");
   my $val=ocd("ocd_poll");
   print "Problem with the firmware: $_[0] has hit an Undefined instruction\n" if($val=~m/current mode: Undefined instruction/s);
-  my $v=$1 if($val=~m/pc: 0x(\w+)/);
+  my $v=""; $v=$1 if($val=~m/pc: 0x(\w+)/);
   print "Program counter $_[0]: $v\n";
   return $v;
 }
@@ -111,6 +116,7 @@ halt("mex3") if($mex3awake);
 ocd("targets 0");
 
 my $firmware=getMem(0x10000);
+
 
 my %firmwarename=("01a204a4"=>"EVO 840 SAFE-Mode ROM Firmware","e2800b02"=>"EXT0CB6Q","68026002"=>"EXT0BB6Q","46d92030"=>"EXT0CB6Q MEX3");
 print "Firmware Identifier: ".$firmware." ".(defined($firmwarename{$firmware})?"identified: ".$firmwarename{$firmware}:"")."\n";
@@ -166,10 +172,6 @@ if($firmware eq "e2800b02" || $firmware eq "68026002" || $firmware eq "46d92030"
 }
 
 
-my @indicators=(0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C);
-
-print "Indicator ".sprintf("0x%X",$_).": ".getMem($_)."\n" foreach(sort @indicators);
-
 my $satastatus=getMem(0x200000AC);
 print "SATA PHY Status: ".((hex($satastatus)&0x1000)?"Connected":"Not connected")." ($satastatus)\n";
 print "".((hex($satastatus)&1)?"There is/was a SATA connection request\n":"There is currently no SATA connection request\n");
@@ -183,12 +185,14 @@ print "Meltdown Counter: $meltdown\n";
 my $interrupts=getMem(0x0081C6B8);
 print "Interrupt Counter: $interrupts\n";
 
+my $curtime=getMem(0x20501204);
+print "Current time: $curtime\n";
 
 foreach my $chan(0 .. 7)
 {
   my $addr=0x2038000C+($chan>>2<<20)+(($chan&3)<<16);
   my $status=getMem($addr);
-  print "Flash Channel #$chan Status: ".((substr($status,0,4) eq "0fff")?"GOOD":"HAS A PROBLEM!")." ($status)\n";
+  print "Flash Channel #$chan Status: ".((substr($status,0,4) eq "ffff")?"GOOD":"HAS A PROBLEM!")." ($status)\n";
 }
 
 
@@ -198,7 +202,7 @@ sub Hex2String($)
   my $r="";
   while($d=~s/([0-9a-f][0-9a-f]) //)
   {
-    $r.=sprintf("%c",hex($1));
+    $r.=sprintf("%c",hex($1)) if(hex($1)>=32 && hex($1)<=127);
   }
   $r=~s/\x00.*$//s;
   return $r;
@@ -209,7 +213,7 @@ foreach my $core(0 .. 2)
   my $mode=Hex2String(getMemDump(0x801008+24*$core+4,19));
   print "Mode $core: $mode\n";
   my $v=getMemDump(0x801008+24*$core+1,1);
-  print "Byte=1: $v\n";
+  print "Byte=1: $v";
 }
 
 
@@ -234,7 +238,8 @@ if($eman ne "unknown")
 }
 
 my $cmdarr=getMem(0x808094);
-print "Commando Array: $cmdarr\n";
+print "Command Array: $cmdarr ".(($cmdarr eq "0081CB7C")?"(good)":"(seems unavailable)")."\n";
+#$cmdarr=0x0081CB7C; # to override the pointer and read it out anyway
 if($cmdarr ne "unknown" && hex($cmdarr)>=0x800000 && hex($cmdarr)<0x80000000)
 {
   foreach my $cmd(0 .. 63)
@@ -245,7 +250,7 @@ if($cmdarr ne "unknown" && hex($cmdarr)>=0x800000 && hex($cmdarr)<0x80000000)
 }
 else
 {
-  print "Commando Array seems to be out of range, therefore we do not dump it.\n";
+  print "Command Array seems to be out of range, therefore we do not dump it.\n";
 }
 
 my $sfrcount=getMem(0x801000);
@@ -302,6 +307,13 @@ foreach my $s(@stacks)
 
 
 # All RAM access must be done as late as possible, since this can crash it when the firmware is completely damaged
+# So I have moved all the potentially crashing memory accesses (reading from >0x80000000 if RAM is not available) below this line, everything safe should be done above.
+
+my @indicators=(0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C);
+
+print "Indicator ".sprintf("0x%X",$_).": ".getMem($_)."\n" foreach(sort @indicators);
+
+
 ocd("targets mex3");
 my $magic=getMem(0x80000024);
 print "SA is loaded correctly: ".($magic eq "29135201" ? "yes":$magic eq "00000000"?"no":"unknown")." (magic:$magic)\n";
