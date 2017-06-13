@@ -24,7 +24,9 @@ Supported Firmware:
 * EXT0CB6Q
 
 Supported JTAG adapters:
-* http://www.kosagi.com/w/index.php?title=Novena_Main_Page
+* Altera USB Blaster (cheaper, slower)
+* http://www.kosagi.com/w/index.php?title=Novena_Main_Page (more expensive, faster)
+
 
 
 Usage:
