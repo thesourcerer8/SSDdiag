@@ -10,7 +10,7 @@ Features:
 * takes approximately 1 minute to execute
 
 System requirements:
-* OpenOCD.org and a supported JTAG adapter (at the moment only Novena is a certified JTAG adapter)
+* OpenOCD.org and a supported JTAG adapter (must be 1.8v tolerant, FT2232H-based adapters are common and work well)
 * Perl.org
 
 Supported SSDs:
@@ -23,10 +23,10 @@ Supported Firmware:
 * EXT0BB6Q 
 * EXT0CB6Q
 
-Supported JTAG adapters:
+Supported JTAG adapters (1.8v tolerant):
 * Altera USB Blaster (cheaper, slower)
 * http://www.kosagi.com/w/index.php?title=Novena_Main_Page (more expensive, faster)
-
+* TIAO TUMPA Multi-Protocol USB Adapter (1.8v-5v, SWD, up to 30 MHz) (http://www.diygadget.com/tiao-usb-multi-protocol-adapter-jtag-spi-i2c-serial.html)
 
 
 Usage:
