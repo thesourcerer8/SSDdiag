@@ -169,6 +169,8 @@ my $mex2pc=""; $mex2pc=getPC("mex2") if($mex2awake);
 my $mex3pc=""; $mex3pc=getPC("mex3") if($mex3awake);
 ocd("targets mex1"); # Needs to be reset after getPC
 
+
+
 my %ipccode=("00000000"=>"NULL","4d524453"=>"SDRM","4d435442"=>"BTCM","88883164"=>"8888");
 
 sub ipc($)
@@ -224,6 +226,8 @@ my $satastatus=getMem(0x200000AC);
 print "SATA PHY Status: ".((hex($satastatus)&0x1000)?"Connected":"Not connected")." ($satastatus)\n";
 print "".((hex($satastatus)&1)?"There is/was a SATA connection request\n":"There is currently no SATA connection request\n");
 
+my $temp=getMemByte(0x0081C6A0);
+print "Current Temperature: $temp\n";
 my $maxtemp=getMem(0x0081C6A4);
 print "Maximum Temperature: $maxtemp\n";
 my $mintemp=getMem(0x0081C6A8);
@@ -235,19 +239,31 @@ print "Interrupt Counter: $interrupts\n";
 
 foreach my $chan(0 .. 7)
 {
-  my $addr=0x2038000C+($chan>>2<<20)+(($chan&3)<<16);
-  my $status=getMem($addr);
-  print "Flash Channel #$chan Status: ".((substr($status,0,4) eq "ffff")?"GOOD":"HAS A PROBLEM!")." ($status)\n";
+  my $addr8=0x2038000C+($chan>>2<<20)+(($chan&3)<<16);
+  my $addr0=0x20300118+($chan>>2<<20)+(($chan&3)<<16);
+  my $addrc=0x203C005C+($chan>>2<<20)+(($chan&3)<<16);
+  my $status=getMem($addr8);
+  my $statusC=getMem($addrc);
+  print "Flash Channel #$chan Status: ".((substr($status,0,4) eq "ffff")?"GOOD":"HAS A PROBLEM!")." ($status)  4-Status: ".($addr0 & 4)." ($addr0) (203C005C:$statusC)\n";
 }
 
-my $curtime=getMem(0x20501204);
-my $ssdtime=2**32-hex($curtime);
-my $seconds=int($ssdtime/1000);
-my $minutes=int($seconds/60);
-my $hours=int($minutes/60);
+my $curtime4k=getMem(0x20506044);
+my $ssdtime4k=2**32-hex($curtime4k);
+my $seconds4k=int($ssdtime4k/4000);
+my $minutes4k=int($seconds4k/60);
+my $hours4k=int($minutes4k/60);
+my $days4k=int($hours4k/24);
+
+my $curtime1k=getMem(0x20501204);
+my $ssdtime1k=2**32-hex($curtime1k);
+my $seconds1k=int($ssdtime1k/1000);
+my $minutes1k=int($seconds1k/60);
+my $hours1k=int($minutes1k/60);
+my $days1k=int($hours1k/24);
 
 my $cputime=time();  
-print "Current SSD time: $ssdtime ($curtime) uptime: $seconds seconds => $minutes minutes\n";
+print "Current SSD time 1KHz: $ssdtime1k ($curtime1k) uptime: $seconds1k seconds => $minutes1k minutes => $hours1k hours\n";
+print "Current SSD time 4KHz: $ssdtime4k ($curtime4k) uptime: $seconds4k seconds => $minutes4k minutes => $hours4k hours\n";
 
 sub Hex2String($)
 {
@@ -274,6 +290,24 @@ foreach my $cpu("mex2","mex3")
 }
 ocd("targets mex1");
 
+print "Encryption Ranges table:\n";
+foreach(0 .. 19)
+{
+  my $base=0x800200f4+$_*16;
+  print "Entry:".sprintf("%02X",$_)." Enabled:".getMem($base)." KeySlotId:".getMem($base+4)." LbaStart:".getMem($base+8)." LbaEnd:".getMem($base+12)."\n";
+}
+print "KeySlotIdTable:\n";
+foreach(0 .. 7)
+{
+  print "Entry:$_ KeySlotId:".getMemByte(0x800200D4+$_)."\n";
+}
+print "RangeIdArray:\n";
+foreach(0 .. 15)
+{
+  print "Entry:$_ RangeId:".getMemByte(0x800200E4+$_)."\n";
+}
+
+
 my $satarequestbase=getMem(0x81C648);
 print "SATA Request base: $satarequestbase ".($satarequestbase eq "00800c00"?"(GOOD)":"(seems to be unavailable)")."\n";
 my $satarequestnum=getMem(hex($satarequestbase)+536);
@@ -298,6 +332,73 @@ else
 {
   print "Command Array seems to be out of range, therefore we do not dump it.\n";
 }
+
+ocd("targets mex1");
+if(getMem(0x808004)=~m/0081BDFC/i)
+{
+  print "WriteHash where LBA4k writes are stored:\n";
+  foreach my $mod(0 .. 510)
+  {
+    my $vHashValue=getMemWord(4 * $mod + 0x0081BDFC);
+    my $base=0x80FE5C+12*hex($vHashValue);
+    my $LBA4k=getMem($base+4); 
+    my $a=(hex($vHashValue)==0xFFFF)?"(empty)":"-> base=".sprintf("0x%X",$base)." -> LBA4k:$LBA4k";
+    print "HASHmod511[$mod]=$vHashValue $a\n";
+  }
+}
+else
+{
+  print "WriteHash not found.\n";
+}
+#foreach my $i (0 .. 510)
+#{
+#  print "\nFTL Map $i..".($i+9).": " if($i%10==0);
+#  my $v=getMemWord(0x81BDFC+4*$i);
+#  print "$v ";
+#}
+#print "\n";
+
+ocd("targets mex2");
+if(getMem(0x80106C)=~m/00801520/i)
+{
+  print "FTL Map (0x80106C=>0x801520) using LBA8Kmod4:\n";
+  foreach my $mod(0 .. 3)
+  {
+    my $base=0x00801520 + 76*$mod;
+    print "mod $mod:\n".getMemDump($base,76)."\n";
+  }
+}
+else
+{
+  print "FTL Map not found.\n";
+}
+# TODO: We should likely do that for MEX3 too, the base address for MEX3 needs to be researched
+
+
+#if(getMem(0x824F40)=~m/4[12]800000/i)
+{
+  print "Command delegation structure using m32M62 counter:\n";
+  foreach my $core("mex2","mex3")
+  {
+    ocd("targets mex1");
+    my $base=($core eq "mex2")?0x41800000:0x42800000;
+    my $counter=getMem($base+0x874);
+    print "Requests that were delegated to core:\n";
+    print "Current ringbuffer element: ".hex($counter)."0x$counter\n"; 
+    foreach my $mod(0 .. 61)
+    {
+      my $mybase=$base+0x90+32*$mod;
+      print "".sprintf("%02d",$mod).((hex($counter)==$mod)?"**":": ")."LBA8K: ".getMem($mybase+8)." M:".getMem($mybase+20)." ".getMemDump($mybase,32);
+    }
+  }
+}
+#else
+{
+  print "Command delegation not found: ".getMem(0x824F40)."\n";
+}
+
+
+
 
 foreach my $core("mex2","mex3")
 {
@@ -361,6 +462,13 @@ foreach my $core("mex1","mex2","mex3")
 ocd("targets mex1");
 
 
+foreach my $i (0 .. 3)
+{
+  my $v=getMem(0x823350 + 40 + 32 * $i + 2028);
+  print "LBA cache $i: $v\n";
+}
+
+
 ocd("targets mex1");
 my $nBlocks=getMem(0x81D39C);
 print "Available Memory Blocks: $nBlocks\n";
@@ -374,6 +482,8 @@ if(hex($nBlocks)==26)
     print "Block #".sprintf("%02d",$_)." : allocated:$allocated nBlocks:$nBlocks Addr:$BlockAddr\n"; 
   }
 }
+
+
 
 
 
@@ -428,10 +538,30 @@ foreach my $core ("mex2","mex3")
   print "\n";
 }
 
+ocd("targets mex2");
+my $v801090=getMem(0x801090);
+if(hex($v801090)>=0x800000 && hex($v801090)<=0x900000)
+{
+  print "Base address 801090: $v801090\n";
+  print "Dumping Physical Block records:\n";
+  my @bases=(0x844ff000,0x845a2ac0,0x92eff000,0x92fa2ac);
+  foreach my $base (@bases)
+  {
+    print "Base: $base\n";
+    foreach my $PBN(0 .. 8379)
+    {
+      last if($PBN>100);
+      my $Erasecount2=getMemWord($base+$PBN*80+4);
+      my $Erasecount=getMem($base+$PBN*80+8);
+      my $Readcount=getMem($base+$PBN*80+12);
+      print "PBN:$PBN EC2:$Erasecount2 Erasecount:$Erasecount Readcount:$Readcount ".getMemDump($base+$PBN*80,80);
+    }
+  }
+}
 
 
 
-my @indicators=(0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C,0x824850,0x805EBC,0x80BC08,0x20000044,0x80106C,0x20000054,0x20000070,0x20102010,0x20205359,0x41827FFC,0x42827FFC);
+my @indicators=(0x801090,0x008010A0,0x008010e0,0x008010f0,0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C,0x824850,0x805EBC,0x80BC08,0x20000044,0x80106C,0x20000054,0x20000070,0x20102010,0x20205359,0x41827FFC,0x42827FFC,0x0080007C,0x80062360,0x8006240C,0x0081ba98,0x0081ba9c,0x0081baa0,0x0081baa4,0x0081baa8,0x0081baac,0x0081bab0,0x8010a4,0x825C08,0x82576C,0x825764,0x825760,0x8010a8,0x82577C,0x824EB4,0x81c6a1,0x81c6a0,0x1001004C,0x10010050,0x822E14,0x822E13,0x822E1C,0x822E20,0x822E15,0x8046EC,0x20502000,0x2050200C,0x20502004,0x20502010,0x20501020,0x20501000,0x20501008,0x804714,0x100201AC,0x100201B0,0x100201B4,0x80000024,0x81C63C,0x20104010,0x81C76C,0x81C67C,0x801000,0x802fe4,0x823050,0x823048,0x81E4C0,0x823310,0x823038,0x81CAF8);
 foreach(sort @indicators)
 {
   print "indicator ".sprintf("0x%X",$_)." ";
