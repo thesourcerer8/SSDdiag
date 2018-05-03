@@ -267,6 +267,26 @@ print "Meltdown Counter: $meltdown\n";
 my $interrupts=getMem(0x0081C6B8);
 print "Interrupt Counter: $interrupts\n";
 
+my $GPIOdir=getMem(0x20501000);
+my $GPIOval=getMem(0x20501004);
+my $GPIOreg=getMem(0x20501008);
+
+my %gpios=(2=>"UART RX",3=>"UART TX",4=>"I2C SCL Clock",5=>"I2C SDA Data",6=>"SATA COMINIT",7=>"SATA COMINIT",9=>"SATA Pin11",10=>"Input from SATA core",11=>"Input from SATA core",12=>"Perhaps a Pinmuxed Output",13=>"Perhaps a Pinmuxed Output",15=>"I2C perhaps power",16=>"Configuration Pin",17=>"SAFE Mode Pin",18=>"Configuration Pin 18", 19=>"Configuration Pin 19");
+
+print "GPIO direction: $GPIOdir\n";
+foreach (sort keys %gpios)
+{
+  print "$gpios{$_} is set to OUTPUT\n" if(hex($GPIOdir) & (1 << $_));
+}
+print "All other GPIOs are set to Input.\n";
+print "GPIO values: $GPIOval\n";
+foreach (sort keys %gpios)
+{
+  print "$gpios{$_} is HIGH\n" if(hex($GPIOval) & (1 << $_));
+}
+print "All other GPIOs are LOW.\n";
+print "GPIO register: $GPIOreg\n";
+
 foreach my $chan(0 .. 7)
 {
   my $addr8=0x2038000C+($chan>>2 << 20)+(($chan&3) << 16);
