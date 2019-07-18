@@ -7,6 +7,7 @@ my $debug=$ARGV[0] || 0;
 print "Restarting OpenOCD ...\n";
 system "killall openocd ".($debug?"":"2>/dev/null");
 sleep(1);
+#system "/usr/src/openocd.new/src/openocd -f /usr/src/openocd.new/tcl/interface/altera-usb-blaster.cfg -f mex1.conf ".($debug?"":"2>/dev/null")."&";
 system "/usr/local/bin/openocd -f mex1.conf ".($debug?"":"2>/dev/null")."&";
 sleep(5);
 
@@ -65,60 +66,50 @@ sub getMem($)
   return "unknown" if($_[0]=~m/unknown/);
   my $v=ocd("ocd_mdw $_[0]");
   print STDERR "mdw: $v\n" if($debug);
-  my $val=substr($v,12,8);
-  if($val!~m/^[0-9a-f]{8}$/)
+  if($v =~m/.*:[ ]+([0-9a-f]{8})/) 
   {
-    print "Error: $v\n";
-    if($v=~m/Target not examined yet/)
-    {
-      print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
-      exit;
-    }
-    return "unknown";
+    return $1;
   }
-  #print STDERR "val: $val\n";
-  return $val;
+  print STDERR "Error: $v\n";
+  if($v=~m/Target not examined yet/)
+  {
+    print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
+    exit;
+  }
+  return "unknown";
 }
 sub getMemByte($)
 {
   return "unknown" if($_[0]=~m/unknown/);
   my $v=ocd("ocd_mdb $_[0]");
-  #print STDERR "mdb: $v\n";
-  my $val=substr($v,12,2);
-  if($val!~m/^[0-9a-f]{2}$/)
+  if($v =~m/.*:[ ]+([0-9a-f]{2})/) 
   {
-    print "Error: $v\n";
-    if($v=~m/Target not examined yet/)
-    {
-      print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
-      exit;
-    }
-    return "unknown";
+    return $1;
   }
-  #print STDERR "val: $val\n";
-  return $val;
+  print "Error: $v\n";
+  if($v=~m/Target not examined yet/)
+  {
+    print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
+    exit;
+  }
+  return "unknown";
 }
 sub getMemWord($)
 {
   return "unknown" if($_[0]=~m/unknown/);
   my $v=ocd("ocd_mdh $_[0]");
-  #print STDERR "mdh: $v\n";
-  my $val=substr($v,12,4);
-  if($val!~m/^[0-9a-f]{4}$/)
+  if($v =~m/.*:[ ]+([0-9a-f]{4})/) 
   {
-    print "Error: $v\n";
-    if($v=~m/Target not examined yet/)
-    {
-      print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
-      exit;
-    }
-    return "unknown";
+    return $1;
   }
-  #print STDERR "val: $val\n";
-  return $val;
+  print "Error: $v\n";
+  if($v=~m/Target not examined yet/)
+  {
+    print "SSD does not seem to be powered up or properly connected, or the debug interface crashed. Please check the connection and OpenOCD settings in mex1.conf, and restart the SSD if necessary\n";
+    exit;
+  }
+  return "unknown";
 }
-
-
 
 sub getMemDump($$)
 {
@@ -147,6 +138,8 @@ print "CPU Core power: $corepower\n";
 my $mex2awake=$corepower eq "unknown"?0:hex($corepower)?1:0;
 my $mex3awake=$corepower eq "unknown"?0:hex($corepower)?1:0;
 
+my @allcores=($mex2awake && $mex2awake) ? ("mex1","mex2","mex3") : ("mex1");
+
 print $mex2awake?"MEX2 is awake!\n":"MEX2 seems to be still sleeping.\n";
 print $mex3awake?"MEX3 is awake!\n":"MEX3 seems to be still sleeping.\n";
 
@@ -162,7 +155,11 @@ my $firmware=getMem(0x10000);
 
 
 my %firmwarename=("01a204a4"=>"EVO 840 SAFE-Mode ROM Firmware","e2800b02"=>"EXT0CB6Q","68026002"=>"EXT0BB6Q","46d92030"=>"EXT0CB6Q MEX3");
+my %firmwarever=("01a204a4"=>0,"e2800b02"=>1,"68026002"=>3,"46d92030"=>4);
+
 print "Firmware Identifier: ".$firmware." ".(defined($firmwarename{$firmware})?"identified: ".$firmwarename{$firmware}:"")."\n";
+
+my $ver=$firmwarever{$firmware} || 0;
 
 my $mex1pc=getPC("mex1");
 my $mex2pc=""; $mex2pc=getPC("mex2") if($mex2awake);
@@ -219,8 +216,10 @@ if($firmware eq "e2800b02" || $firmware eq "68026002" || $firmware eq "46d92030"
 }
 
 
-my $rangestate1=getMem(0x800200F4);
-my $rangestate2=getMem(0x800200F8);
+my $rangeaddr=$ver==1?0x8001FE04:0x800200F4;
+
+my $rangestate1=getMem($rangeaddr);
+my $rangestate2=getMem($rangeaddr+4);
 if($rangestate1 eq "00000000" && $rangestate2 eq "000000ff")
 {
   print "Crypto ranges are in PREACTIVE state\n";
@@ -242,8 +241,8 @@ else
   print "Unknown crypto range state: $rangestate1 $rangestate2\n";
 }
 
-my $ivpointer1=getMem(0x825E08);
-my $ivpointer2=getMem(0x8003047C);
+my $ivpointer1=getMem($ver==1?0x825DF0:0x825E08);
+my $ivpointer2=getMem($ver==1?0x8003018C:0x8003047C);
 print "IVPointers: $ivpointer1 (".($ivpointer1 eq "803b5200" ? "GOOD":"BAD")."), $ivpointer2 (".($ivpointer2 eq "803b5200" ? "GOOD":"BAD").")\n";
 print "IV for User Data: ".getMemDump(0x803B5200,32);
 
@@ -327,15 +326,18 @@ sub Hex2String($)
   return $r;
 }
 
-foreach my $cpu("mex2","mex3")
+if($mex2awake)
 {
-  ocd("targets $cpu");
-  foreach my $core(0 .. 2)
+  foreach my $cpu("mex2","mex3")
   {
-    my $mode=Hex2String(getMemDump(0x801008+24*$core+4,19));
-    print "Core: $cpu Mode $core: $mode   ";
-    my $v=getMemDump(0x801008+24*$core+1,1);
-    print "Byte=1: $v";
+    ocd("targets $cpu");
+    foreach my $core(0 .. 2)
+    {
+      my $mode=Hex2String(getMemDump(0x801008+24*$core+4,19));
+      print "Core: $cpu Mode $core: $mode   ";
+      my $v=getMemDump(0x801008+24*$core+1,1);
+      print "Byte=1: $v";
+    }
   }
 }
 ocd("targets mex1");
@@ -343,18 +345,18 @@ ocd("targets mex1");
 print "Encryption Ranges table:\n";
 foreach(0 .. 19)
 {
-  my $base=0x800200f4+$_*16;
+  my $base=$rangeaddr+$_*16;
   print "Entry:".sprintf("%02X",$_)." Enabled:".getMem($base)." KeySlotId:".getMem($base+4)." LbaStart:".getMem($base+8)." LbaEnd:".getMem($base+12)."\n";
 }
 print "KeySlotIdTable:\n";
 foreach(0 .. 7)
 {
-  print "Entry:$_ KeySlotId:".getMemByte(0x800200D4+$_)."\n";
+  print "Entry:$_ KeySlotId:".getMemByte($rangeaddr-0x20+$_)."\n";
 }
 print "RangeIdArray:\n";
 foreach(0 .. 15)
 {
-  print "Entry:$_ RangeId:".getMemByte(0x800200E4+$_)."\n";
+  print "Entry:$_ RangeId:".getMemByte($rangeaddr-0x10+$_)."\n";
 }
 
 
@@ -384,12 +386,13 @@ else
 }
 
 ocd("targets mex1");
-if(getMem(0x808004)=~m/0081BDFC/i)
+my $map = getMem(0x808004);
+if($map=~m/0081B[de][0-9a-f]{2}/i)
 {
   print "WriteHash where LBA4k writes are stored:\n";
   foreach my $mod(0 .. 510)
   {
-    my $vHashValue=getMemWord(4 * $mod + 0x0081BDFC);
+    my $vHashValue=getMemWord(4 * $mod + hex($map));
     my $base=0x80FE5C+12*hex($vHashValue);
     my $LBA4k=getMem($base+4); 
     my $a=(hex($vHashValue)==0xFFFF)?"(empty)":"-> base=".sprintf("0x%X",$base)." -> LBA4k:$LBA4k";
@@ -409,12 +412,13 @@ else
 #print "\n";
 
 ocd("targets mex2");
-if(getMem(0x80106C)=~m/00801520/i)
+$map=getMem(0x80106C);
+if($map=~m/008015[12][0-9a-f]/i)
 {
-  print "FTL Map (0x80106C=>0x801520) using LBA8Kmod4:\n";
+  print "FTL Map (0x80106C=>0x801520/$map) using LBA8Kmod4:\n";
   foreach my $mod(0 .. 3)
   {
-    my $base=0x00801520 + 76*$mod;
+    my $base=hex($map) + 76*$mod;
     print "mod $mod:\n".getMemDump($base,76)."\n";
   }
 }
@@ -425,7 +429,9 @@ else
 # TODO: We should likely do that for MEX3 too, the base address for MEX3 needs to be researched
 
 
+print "Command delegation: [824F40]=".getMem(0x824F40)."\n";
 #if(getMem(0x824F40)=~m/4[12]800000/i)
+if($mex2awake)
 {
   print "Command delegation structure using m32M62 counter:\n";
   foreach my $core("mex2","mex3")
@@ -434,7 +440,7 @@ else
     my $base=($core eq "mex2")?0x41800000:0x42800000;
     my $counter=getMem($base+0x874);
     print "Requests that were delegated to core:\n";
-    print "Current ringbuffer element: ".hex($counter)."0x$counter\n"; 
+    print "Current ringbuffer element: ".hex($counter)." 0x$counter\n"; 
     foreach my $mod(0 .. 61)
     {
       my $mybase=$base+0x90+32*$mod;
@@ -449,34 +455,35 @@ else
 
 
 
-
-foreach my $core("mex2","mex3")
+if($mex2awake)
 {
-  ocd("targets $core");
-  my $sfrcount=getMem(0x801000);
-  my $sfrpointer=getMem(0x801004);
-  print "SFR POINTER $core: $sfrpointer\n";
-  print "SFR COUNT $core: $sfrcount\n";
-  if($sfrpointer ne "unknown" && hex($sfrpointer)>=0x80000 && hex($sfrpointer)<=0x8FFFFFFF && hex($sfrcount)<=200)
+  foreach my $core("mex2","mex3")
   {
-    foreach my $sfr(0 .. hex($sfrcount)-1)
-    {  
-      my $sfrpos=hex($sfrpointer)+8*$sfr;
-      print "SFR $core ID:".sprintf("%2d",$sfr)." ";
-      my $base=getMem($sfrpos);
-      my $size=getMem($sfrpos+4);
-      print "BASE:$base SIZE:$size\n";
-      print getMemDump("0x$base","0x$size")."\n" if($debug);
+    ocd("targets $core");
+    my $sfrcount=getMem(0x801000);
+    my $sfrpointer=getMem(0x801004);
+    print "SFR POINTER $core: $sfrpointer\n";
+    print "SFR COUNT $core: $sfrcount\n";
+    if($sfrpointer ne "unknown" && hex($sfrpointer)>=0x80000 && hex($sfrpointer)<=0x8FFFFFFF && hex($sfrcount)<=200)
+    {
+      foreach my $sfr(0 .. hex($sfrcount)-1)
+      {  
+        my $sfrpos=hex($sfrpointer)+8*$sfr;
+        print "SFR $core ID:".sprintf("%2d",$sfr)." ";
+        my $base=getMem($sfrpos);
+        my $size=getMem($sfrpos+4);
+        print "BASE:$base SIZE:$size\n";
+        print getMemDump("0x$base","0x$size")."\n" if($debug);
+      }
+      print "You can get mem dumps of the SFR regions in the debug mode of this diagnostic tool if needed. (2 MB of output and it takes approx. an hour)\n" if(!$debug);
     }
-    print "You can get mem dumps of the SFR regions in the debug mode of this diagnostic tool if needed. (2 MB of output and it takes approx. an hour)\n" if(!$debug);
+    else
+    {
+      print "SFR Data does not seem to be valid\n";
+    }
   }
-  else
-  {
-    print "SFR Data does not seem to be valid\n";
-  }
+  ocd("targets mex1");
 }
-ocd("targets mex1");
-
 
 my @stacks=(
 ["SVC",0x826C00,0x827C00,"25"],
@@ -487,7 +494,7 @@ my @stacks=(
 #["USR",0x0E21E99B,0x0E21E99B,"13"] # Yes, this is the tragedy, the UserSpace Stack
 );
 
-foreach my $core("mex1","mex2","mex3")
+foreach my $core(@allcores)
 {
   print "Stacks of core $core:\n";
   ocd("targets $core");
@@ -541,81 +548,91 @@ if(hex($nBlocks)==26)
 # All RAM access must be done as late as possible, since this can crash it when the firmware is completely damaged
 # So I have moved all the potentially crashing memory accesses (reading from >0x80000000 if RAM is not available) below this line, everything safe should be done above.
 
-foreach my $core ("mex2","mex3")
+if($mex2awake)
 {
-  print "Looking for exceptions on $core\n";
-  ocd("targets $core");
-  my $eman=getMem(0x008010A0);
-  #mex3: [0x008010a0]=0x800A2378
-  if($eman ne "unknown")
+  foreach my $core ("mex2","mex3")
   {
-    print "Exception Manager for $core: $eman\n";
-    foreach my $exception(0  .. 3)
-    {  
-      my $xbase=hex(getMem(hex($eman)+4*(127*$exception+($exception << 8))+172));
-      print "xbase: ".sprintf("0x%X",$xbase)."\n";
-      my $exceptionbase=getMem(sprintf("0x%X",$xbase));
-      print "v5: $exceptionbase\n";
-      print "<EXCEPTION_$exception>\n";
-      print "<DEFENCECODE_RUNCOUNT>".hex(getMem($xbase))."</DEFENCECODE_RUNCOUNT>\n";
-      print "<DEFENCECODE_META_RUNCOUNT>".hex(getMem($xbase+8))."</DEFENCECODE_META_RUNCOUNT>\n";
-      print "<RECLAIM_LOG_COUNT>".hex(getMem($xbase+57132))."</RECLAIM_LOG_COUNT>\n";
-      print "<RECOVERY_FAIL_COUNT>".hex(getMem($xbase+24))."</RECOVERY_FAIL_COUNT>\n";
-      my $faillogs=hex(getMem($xbase+57840));
-      print "<RECOVERY_FAIL_LOG>$faillogs</RECOVERY_FAIL_LOG>\n";
-      if($faillogs && $faillogs<40)
-      {
-        print "<FAIL_DESCRIPTION>\n";
-        my $st=($faillogs>16)?$faillogs-16:0;
-        foreach my $failnum(0 .. min($faillogs,16)-1)
-        {
-          my $failbase=$xbase + 44 * (($st + $failnum) % 16);
-          print "FailBase: $failbase (".sprintf("0x%X",$failbase).")\n";
-          print "FAILCOUNT:".sprintf("%02d",$failnum)." ";
-          print "EXCEPTIONOP_ID:".hex(getMem($failbase + 57846))." ";
-          print "ZONE:".hex(getMem($failbase + 57848))." ";
-          print "PBN:".hex(getMem($failbase + 57852))." ";
-          print "PAGEOFFSET:".hex(getMem($failbase + 57850))." ";
-          print "LPN:".hex(getMem($failbase + 57856))." \n";
-          print "ERASECOUNT:".hex(getMem($failbase + 57868))." ";
-          print "READCOUNT:".hex(getMem($failbase + 57876))."\n";
-        }
-        print "</FAIL_DESCRIPTION>\n";
-      }
-      print "</EXCEPTION_$exception>\n";
-    }
-  }
-  print "\n";
-}
-
-ocd("targets mex2");
-my $v801090=getMem(0x801090);
-if(hex($v801090)>=0x800000 && hex($v801090)<=0x900000)
-{
-  print "Base address 801090: $v801090\n";
-  print "Dumping Physical Block records:\n";
-  my @bases=(0x844ff000,0x845a2ac0,0x92eff000,0x92fa2ac);
-  foreach my $base (@bases)
-  {
-    print "Base: $base\n";
-    foreach my $PBN(0 .. 8379)
+    print "Looking for exceptions on $core\n";
+    ocd("targets $core");
+    my $eman=getMem(0x008010A0);
+    #mex3: [0x008010a0]=0x800A2378
+    if($eman ne "unknown")
     {
-      last if($PBN>100);
-      my $Erasecount2=getMemWord($base+$PBN*80+4);
-      my $Erasecount=getMem($base+$PBN*80+8);
-      my $Readcount=getMem($base+$PBN*80+12);
-      print "PBN:$PBN EC2:$Erasecount2 Erasecount:$Erasecount Readcount:$Readcount ".getMemDump($base+$PBN*80,80);
+      print "Exception Manager for $core: $eman\n";
+      foreach my $exception(0  .. 3)
+      {  
+        my $xbase=hex(getMem(hex($eman)+4*(127*$exception+($exception << 8))+172));
+        print "xbase: ".sprintf("0x%X",$xbase)."\n";
+        my $exceptionbase=getMem(sprintf("0x%X",$xbase));
+        print "v5: $exceptionbase\n";
+        print "<EXCEPTION_$exception>\n";
+        print "<DEFENCECODE_RUNCOUNT>".hex(getMem($xbase))."</DEFENCECODE_RUNCOUNT>\n";
+        print "<DEFENCECODE_META_RUNCOUNT>".hex(getMem($xbase+8))."</DEFENCECODE_META_RUNCOUNT>\n";
+        print "<RECLAIM_LOG_COUNT>".hex(getMem($xbase+57132))."</RECLAIM_LOG_COUNT>\n";
+        print "<RECOVERY_FAIL_COUNT>".hex(getMem($xbase+24))."</RECOVERY_FAIL_COUNT>\n";
+        my $faillogs=hex(getMem($xbase+57840));
+        print "<RECOVERY_FAIL_LOG>$faillogs</RECOVERY_FAIL_LOG>\n";
+        if($faillogs && $faillogs<40)
+        {
+          print "<FAIL_DESCRIPTION>\n";
+          my $st=($faillogs>16)?$faillogs-16:0;
+          foreach my $failnum(0 .. min($faillogs,16)-1)
+          {
+            my $failbase=$xbase + 44 * (($st + $failnum) % 16);
+            print "FailBase: $failbase (".sprintf("0x%X",$failbase).")\n";
+            print "FAILCOUNT:".sprintf("%02d",$failnum)." ";
+            print "EXCEPTIONOP_ID:".hex(getMem($failbase + 57846))." ";
+            print "ZONE:".hex(getMem($failbase + 57848))." ";
+            print "PBN:".hex(getMem($failbase + 57852))." ";
+            print "PAGEOFFSET:".hex(getMem($failbase + 57850))." ";
+            print "LPN:".hex(getMem($failbase + 57856))." \n";
+            print "ERASECOUNT:".hex(getMem($failbase + 57868))." ";
+            print "READCOUNT:".hex(getMem($failbase + 57876))."\n";
+          }
+          print "</FAIL_DESCRIPTION>\n";
+        }
+        print "</EXCEPTION_$exception>\n";
+      }
+    }
+    print "\n";
+  }
+}
+
+if($mex2awake)
+{
+  print "Physical blocks...\n";
+  ocd("targets mex2");
+  my $v801090=getMem(0x801090);
+  if(hex($v801090)>=0x800000 && hex($v801090)<=0x900000)
+  {
+    print "Base address 801090: $v801090\n";
+    print "Dumping Physical Block records:\n";
+    my @bases=(0x844ff000,0x845a2ac0,0x92eff000,0x92fa2ac);
+    foreach my $base (@bases)
+    {
+      print "Base: $base\n";
+      foreach my $PBN(0 .. 8379)
+      {
+        last if($PBN>100);
+        my $Erasecount2=getMemWord($base+$PBN*80+4);
+        my $Erasecount=getMem($base+$PBN*80+8);
+        my $Readcount=getMem($base+$PBN*80+12);
+        print "PBN:$PBN EC2:$Erasecount2 Erasecount:$Erasecount Readcount:$Readcount ".getMemDump($base+$PBN*80,80);
+      }
     }
   }
 }
 
 
+my @indicators=(0x801090,0x008010A0,0x008010e0,0x008010f0,0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C,0x824850,0x805EBC,0x80BC08,0x20000044,0x80106C,0x20000054,0x20000070,0x20102010,0x41827FFC,0x42827FFC,0x0080007C,0x80062360,0x8006240C,0x0081ba98,0x0081ba9c,0x0081baa0,0x0081baa4,0x0081baa8,0x0081baac,0x0081bab0,0x8010a4,0x825C08,0x82576C,0x825764,0x825760,0x8010a8,0x82577C,0x824EB4,0x81c6a1,0x81c6a0,0x1001004C,0x10010050,0x822E14,0x822E13,0x822E1C,0x822E20,0x822E15,0x8046EC,0x20502000,0x2050200C,0x20502004,0x20502010,0x20501020,0x20501000,0x20501008,0x804714,0x100201AC,0x100201B0,0x100201B4,0x80000024,0x81C63C,0x20104010,0x81C76C,0x81C67C,0x801000,0x802fe4,0x823050,0x823048,0x81E4C0,0x823310,0x823038,0x81CAF8,0x8003047C,0x825E08,0x20501038,0x8010DC,0x8001FE04,0x8001FE08,0x825df0,0x8003018C,0x825E08,0x8003047C);
+# 0x20205359 was never readable
 
-my @indicators=(0x801090,0x008010A0,0x008010e0,0x008010f0,0x0080471C,0x008049AC,0x00808020,0x00808094,0x0080C160,0x0080C428,0x0080C42C,0x825BEC,0x00804E1C,0x00804564,0x2050F024,0x20440018,0x825C00,0x100205B0,0x800a1ad4,0x800a1a10,0x801070,0x80131C,0x2048000C,0x2049000C,0x204A000C,0x204B000C,0x2048012C,0x2049012C,0x204A012C,0x204B012C,0x2038000C,0x2039000C,0x203A000C,0x203B000C,0x2038012C,0x2039012C,0x203A012C,0x203B012C,0x824850,0x805EBC,0x80BC08,0x20000044,0x80106C,0x20000054,0x20000070,0x20102010,0x20205359,0x41827FFC,0x42827FFC,0x0080007C,0x80062360,0x8006240C,0x0081ba98,0x0081ba9c,0x0081baa0,0x0081baa4,0x0081baa8,0x0081baac,0x0081bab0,0x8010a4,0x825C08,0x82576C,0x825764,0x825760,0x8010a8,0x82577C,0x824EB4,0x81c6a1,0x81c6a0,0x1001004C,0x10010050,0x822E14,0x822E13,0x822E1C,0x822E20,0x822E15,0x8046EC,0x20502000,0x2050200C,0x20502004,0x20502010,0x20501020,0x20501000,0x20501008,0x804714,0x100201AC,0x100201B0,0x100201B4,0x80000024,0x81C63C,0x20104010,0x81C76C,0x81C67C,0x801000,0x802fe4,0x823050,0x823048,0x81E4C0,0x823310,0x823038,0x81CAF8,0x8003047C,0x825E08,0x20501038,0x8010DC);
+print "Indicators...\n";
 foreach(sort @indicators)
 {
+  next if(!$mex2awake && $_>=0x40000000 && $_<=0x50000000);
   print "indicator ".sprintf("0x%X",$_)." ";
-  foreach my $core ("mex1","mex2","mex3")
+  foreach my $core (@allcores)
   {
     ocd("targets $core");
     print "$core:".getMem($_)." ";
@@ -623,11 +640,11 @@ foreach(sort @indicators)
   print "\n";
 }
 
-foreach my $core ("mex1","mex2","mex3")
+foreach my $core (@allcores)
 {
   ocd("targets $core");
   my $magic=getMem(0x80000024);
-  print "$core thinks SA is loaded correctly: ".($magic eq "29135201" ? "yes":$magic eq "00000000"?"no":"unknown")." (magic:$magic)\n";
+  print "$core is in DEVSLEEP: ".($magic eq "29135201" ? "yes":$magic eq "00000000"?"no":"unknown")." (magic:$magic)\n";
 }
 
 my $base8=getMem(0x8000DCE3);
